@@ -4,6 +4,7 @@ using ProjectM.Network;
 using ProjectM.Gameplay.Systems;
 using Unity.Collections;
 using Unity.Entities;
+using BestGearGuard;
 using BestGearGuard.Services;
 using BestGearGuard.Utils;
 
@@ -26,6 +27,12 @@ namespace BestGearGuard.Patches
         public static void WeaponPostfix(WeaponLevelSystem_Spawn __instance)
             => CheckAllPlayers(__instance.EntityManager);
 
+        // Triggered when amulet (magic source) is equipped/changed
+        [HarmonyPatch(typeof(SpellLevelSystem_Spawn), nameof(SpellLevelSystem_Spawn.OnUpdate))]
+        [HarmonyPostfix]
+        public static void SpellPostfix()
+            => CheckAllPlayers(Core.EntityManager);
+
         // Triggered when any item is equipped from inventory (drag & drop)
         [HarmonyPatch(typeof(EquipItemFromInventorySystem), nameof(EquipItemFromInventorySystem.OnUpdate))]
         [HarmonyPostfix]
@@ -36,6 +43,18 @@ namespace BestGearGuard.Patches
         [HarmonyPatch(typeof(EquipItemSystem), nameof(EquipItemSystem.OnUpdate))]
         [HarmonyPostfix]
         public static void EquipPostfix(EquipItemSystem __instance)
+            => CheckAllPlayers(__instance.EntityManager);
+
+        // Triggered when items are moved/transferred between inventories (right-click from chest/bag)
+        [HarmonyPatch(typeof(MoveItemBetweenInventoriesSystem), nameof(MoveItemBetweenInventoriesSystem.OnUpdate))]
+        [HarmonyPostfix]
+        public static void MoveItemPostfix(MoveItemBetweenInventoriesSystem __instance)
+            => CheckAllPlayers(__instance.EntityManager);
+
+        // Triggered when any item is unequipped
+        [HarmonyPatch(typeof(UnEquipItemSystem), nameof(UnEquipItemSystem.OnUpdate))]
+        [HarmonyPostfix]
+        public static void UnEquipPostfix(UnEquipItemSystem __instance)
             => CheckAllPlayers(__instance.EntityManager);
 
         private static void CheckAllPlayers(EntityManager em)
@@ -54,12 +73,16 @@ namespace BestGearGuard.Patches
                     var characterEntity = user.LocalCharacter._Entity;
                     if (characterEntity == Entity.Null || !em.Exists(characterEntity)) continue;
 
-                    if (!GearCheckerService.CheckViolation(em, characterEntity, out int armorMaxTier, out int weaponMaxTier))
+                    if (!GearCheckerService.CheckViolation(
+                            em, characterEntity,
+                            out int armorMaxTier,
+                            out int weaponTier,
+                            out int amuletTier,
+                            out var violation))
                     {
                         _warned.Remove(user.PlatformId);
                         if (GearGuardSettings.DebuffEnabled.Value)
-                            if (GearGuardSettings.DebuffEnabled.Value)
-                                GearDebuffService.RemoveDebuff(em, characterEntity);
+                            GearDebuffService.RemoveDebuff(em, characterEntity);
                         continue;
                     }
 
@@ -69,7 +92,7 @@ namespace BestGearGuard.Patches
                     if (_warned.Contains(user.PlatformId)) continue;
                     _warned.Add(user.PlatformId);
 
-                    SendWarning(em, user, armorMaxTier, weaponMaxTier);
+                    SendWarning(em, user, armorMaxTier, weaponTier, amuletTier, violation);
                 }
             }
             finally
@@ -78,10 +101,43 @@ namespace BestGearGuard.Patches
             }
         }
 
-        private static void SendWarning(EntityManager em, User user, int armorMaxTier, int weaponMaxTier)
+        private static void SendWarning(
+            EntityManager em,
+            User user,
+            int armorMaxTier,
+            int weaponTier,
+            int amuletTier,
+            GearCheckerService.ViolationType violation)
         {
-            var line1 = (FixedString512Bytes)"<color=#ff5555>[GearGuard] WARNING: Your weapon/amulet tier is too high!</color>";
-            var line2 = (FixedString512Bytes)$"<color=#ffaa00>Your weapon/amulet (Tier {weaponMaxTier}) exceeds your armor (Tier {armorMaxTier}) by more than {GearGuardSettings.MaxTierDifference.Value}.</color>";
+            int maxAllowed = GearGuardSettings.MaxTierDifference.Value;
+            int minAmuletGap = GearGuardSettings.MinAmuletTierBelowArmor.Value;
+
+            var line1 = (FixedString512Bytes)"<color=#ff5555>[GearGuard] WARNING: Your equipment violates the server gear rules!</color>";
+            FixedString512Bytes line2;
+
+            switch (violation)
+            {
+                case GearCheckerService.ViolationType.ArmorSpread:
+                    line2 = (FixedString512Bytes)$"<color=#ffaa00>Your armor pieces are too spread out. Max allowed difference: {maxAllowed} tier(s).</color>";
+                    break;
+
+                case GearCheckerService.ViolationType.WeaponTooHigh:
+                    line2 = (FixedString512Bytes)$"<color=#ffaa00>Your weapon (Tier {weaponTier}) is too high for your armor (Tier {armorMaxTier}). Max allowed: Tier {armorMaxTier + maxAllowed}.</color>";
+                    break;
+
+                case GearCheckerService.ViolationType.AmuletTooHigh:
+                    line2 = (FixedString512Bytes)$"<color=#ffaa00>Your amulet (Tier {amuletTier}) is too high for your armor (Tier {armorMaxTier}). Max allowed: Tier {armorMaxTier + maxAllowed}.</color>";
+                    break;
+
+                case GearCheckerService.ViolationType.AmuletTooLow:
+                    line2 = (FixedString512Bytes)$"<color=#ffaa00>Your amulet (Tier {amuletTier}) is too low for your armor (Tier {armorMaxTier}). Min required: Tier {armorMaxTier - minAmuletGap}.</color>";
+                    break;
+
+                default:
+                    line2 = (FixedString512Bytes)"<color=#ffaa00>Please check your equipped items.</color>";
+                    break;
+            }
+
             var line3 = (FixedString512Bytes)"<color=#ffaa00>Please adjust your equipment to comply with the server rules.</color>";
 
             ServerChatUtils.SendSystemMessageToClient(em, user, ref line1);

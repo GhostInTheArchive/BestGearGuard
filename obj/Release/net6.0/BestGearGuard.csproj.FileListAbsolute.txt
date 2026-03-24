@@ -227,3 +227,4 @@ C:\Users\natha\Desktop\Sunrises DUO\BestGearGuard\obj\Release\net6.0\BestGearGua
 C:\Users\natha\Desktop\Sunrises DUO\BestGearGuard\obj\Release\net6.0\refint\BestGearGuard.dll
 C:\Users\natha\Desktop\Sunrises DUO\BestGearGuard\obj\Release\net6.0\BestGearGuard.pdb
 C:\Users\natha\Desktop\Sunrises DUO\BestGearGuard\obj\Release\net6.0\ref\BestGearGuard.dll
+C:\Users\natha\Desktop\Sunrises DUO\BestGearGuard\obj\Release\net6.0\BestGearGuard.sourcelink.json

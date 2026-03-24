@@ -1,4 +1,4 @@
-using ProjectM;
+﻿using ProjectM;
 using BestGearGuard.Utils;
 using Stunlock.Core;
 using Unity.Entities;
@@ -15,21 +15,33 @@ namespace BestGearGuard.Services
             EquipmentType.Footgear,
         };
 
-        private static readonly EquipmentType[] WeaponSlots = new[]
+        public enum ViolationType
         {
-            EquipmentType.Weapon,
-            EquipmentType.MagicSource,
-        };
+            None,
+            ArmorSpread,       // armor pieces too far apart from each other
+            WeaponTooHigh,     // weapon exceeds armor max tier
+            AmuletTooHigh,     // amulet exceeds armor max tier
+            AmuletTooLow,      // amulet is below armor min tier (new)
+        }
 
-        public static bool CheckViolation(EntityManager em, Entity characterEntity, out int armorMaxTier, out int weaponMaxTier)
+        public static bool CheckViolation(
+            EntityManager em,
+            Entity characterEntity,
+            out int armorMaxTier,
+            out int weaponTier,
+            out int amuletTier,
+            out ViolationType violation)
         {
             armorMaxTier = 0;
-            weaponMaxTier = 0;
+            weaponTier = 0;
+            amuletTier = 0;
+            violation = ViolationType.None;
 
             if (!em.HasComponent<Equipment>(characterEntity)) return false;
 
             var equipment = em.GetComponentData<Equipment>(characterEntity);
 
+            // ── Armor ────────────────────────────────────────────────────────
             int armorMin = 99;
             armorMaxTier = 0;
             bool anyArmor = false;
@@ -44,27 +56,60 @@ namespace BestGearGuard.Services
                 if (tier < armorMin) armorMin = tier;
             }
 
-            bool anyWeapon = false;
-            foreach (var slotType in WeaponSlots)
-            {
-                var guid = equipment.GetEquipmentItemId(slotType);
-                if (guid.GuidHash == 0) continue;
-                if (!TierDatabase.TryGetTier(guid, out int tier)) continue;
-                anyWeapon = true;
-                if (tier > weaponMaxTier) weaponMaxTier = tier;
-            }
-
             if (!anyArmor) return false;
 
+            // ── Weapon ───────────────────────────────────────────────────────
+            bool anyWeapon = false;
+            {
+                var guid = equipment.GetEquipmentItemId(EquipmentType.Weapon);
+                if (guid.GuidHash != 0 && TierDatabase.TryGetTier(guid, out int tier))
+                {
+                    anyWeapon = true;
+                    weaponTier = tier;
+                }
+            }
+
+            // ── Amulet ───────────────────────────────────────────────────────
+            bool anyAmulet = false;
+            {
+                var guid = equipment.GetEquipmentItemId(EquipmentType.MagicSource);
+                if (guid.GuidHash != 0 && TierDatabase.TryGetTier(guid, out int tier))
+                {
+                    anyAmulet = true;
+                    amuletTier = tier;
+                }
+            }
+
             int maxAllowed = GearGuardSettings.MaxTierDifference.Value;
+            int minAmuletGap = GearGuardSettings.MinAmuletTierBelowArmor.Value;
 
             // 1. Armor pieces must stay within MaxTierDifference of each other
-            if (anyArmor && (armorMaxTier - armorMin) > maxAllowed)
+            if ((armorMaxTier - armorMin) > maxAllowed)
+            {
+                violation = ViolationType.ArmorSpread;
                 return true;
+            }
 
-            // 2. Weapon/amulet must not exceed armor max tier by more than MaxTierDifference
-            if (anyWeapon && weaponMaxTier > armorMaxTier + maxAllowed)
+            // 2. Weapon must not exceed armor max tier by more than MaxTierDifference
+            if (anyWeapon && weaponTier > armorMaxTier + maxAllowed)
+            {
+                violation = ViolationType.WeaponTooHigh;
                 return true;
+            }
+
+            // 3. Amulet must not exceed armor max tier by more than MaxTierDifference
+            if (anyAmulet && amuletTier > armorMaxTier + maxAllowed)
+            {
+                violation = ViolationType.AmuletTooHigh;
+                return true;
+            }
+
+            // 4. Amulet must not be below armor max tier by more than MinAmuletTierBelowArmor
+            if (anyAmulet && amuletTier < armorMaxTier - minAmuletGap)
+            {
+                violation = ViolationType.AmuletTooLow;
+                return true;
+            }
 
             return false;
         }

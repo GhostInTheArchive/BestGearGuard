@@ -55,14 +55,19 @@ namespace BestGearGuard.Commands
                 return;
             }
 
-            if (GearCheckerService.CheckViolation(em, characterEntity, out int armorMaxTier, out int weaponMaxTier))
+            if (GearCheckerService.CheckViolation(
+                    em, characterEntity,
+                    out int armorMaxTier,
+                    out int weaponTier,
+                    out int amuletTier,
+                    out var violation))
             {
-                ctx.Reply($"<color=#ff5555>[GearGuard] WARNING: {playerName} is in violation!</color>");
-                ctx.Reply($"  Armor max: <color=#ffffff>Tier {armorMaxTier}</color>  |  Weapon/Amulet max: <color=#ffffff>Tier {weaponMaxTier}</color>");
+                ctx.Reply($"<color=#ff5555>[GearGuard] WARNING: {playerName} is in violation! ({violation})</color>");
+                ctx.Reply($"  Armor max : <color=#ffffff>Tier {armorMaxTier}</color>  |  Weapon: <color=#ffffff>Tier {weaponTier}</color>  |  Amulet: <color=#ffffff>Tier {amuletTier}</color>");
             }
             else
             {
-                ctx.Reply($"<color=#00ff88>[GearGuard]</color> {playerName}'s gear is compliant. (Armor T{armorMaxTier} / Weapon T{weaponMaxTier})");
+                ctx.Reply($"<color=#00ff88>[GearGuard]</color> {playerName}'s gear is compliant. (Armor T{armorMaxTier} / Weapon T{weaponTier} / Amulet T{amuletTier})");
             }
         }
 
@@ -154,9 +159,10 @@ namespace BestGearGuard.Commands
             string state = GearGuardSettings.Enabled.Value ? "<color=#00ff00>ON</color>" : "<color=#ff5555>OFF</color>";
             string debuffState = GearGuardSettings.DebuffEnabled.Value ? "<color=#00ff00>ON</color>" : "<color=#ff5555>OFF</color>";
             ctx.Reply("<color=#ffaa00>--- GearGuard Status ---</color>");
-            ctx.Reply($"  Enforcement   : {state}");
-            ctx.Reply($"  Max tier diff : <color=#ffffff>{GearGuardSettings.MaxTierDifference.Value}</color>");
-            ctx.Reply($"  Debuff        : {debuffState}");
+            ctx.Reply($"  Enforcement          : {state}");
+            ctx.Reply($"  Max tier diff        : <color=#ffffff>{GearGuardSettings.MaxTierDifference.Value}</color>  <color=#888888>(weapon/amulet ceiling above armor)</color>");
+            ctx.Reply($"  Min amulet gap       : <color=#ffffff>{GearGuardSettings.MinAmuletTierBelowArmor.Value}</color>  <color=#888888>(amulet floor below armor max)</color>");
+            ctx.Reply($"  Debuff               : {debuffState}");
         }
 
         // ── Helper ──────────────────────────────────────────────────────────
